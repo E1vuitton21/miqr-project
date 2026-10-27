@@ -1,0 +1,98 @@
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+enum QrContentType {
+  URL
+  TEXT
+  EMAIL
+  PHONE
+  WIFI
+  VCARD
+}
+
+enum QrErrorCorrection {
+  L
+  M
+  Q
+  H
+}
+
+enum QrFileFormat {
+  PNG
+  SVG
+}
+
+enum QrDotsStyle {
+  SQUARE
+  ROUNDED
+  DOTS
+}
+
+enum QrStatus {
+  ACTIVE
+  ARCHIVED
+}
+
+model User {
+  id             String    @id @default(cuid())
+  name           String
+  email          String    @unique
+  passwordHash   String
+  theme          String    @default("dark")
+  storageQuota   Int       @default(104857600) // 100 MB dalam bytes
+  storageUsed    Int       @default(0)         // bytes terpakai
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+  
+  qrCodes        QrCode[]
+  sessions       Session[]
+
+  @@index([email])
+}
+
+model Session {
+  id           String   @id @default(cuid())
+  sessionToken String   @unique
+  userId       String
+  expiresAt    DateTime
+  createdAt    DateTime @default(now())
+  
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([sessionToken])
+}
+
+model QrCode {
+  id              String             @id @default(cuid())
+  userId          String
+  name            String
+  contentType     QrContentType
+  payload         String             @db.Text
+  errorCorrection QrErrorCorrection  @default(M)
+  foreground      String             @default("#000000")
+  background      String             @default("#FFFFFF")
+  width           Int                @default(1024)
+  margin          Int                @default(4)
+  dotsStyle       QrDotsStyle        @default(SQUARE)
+  fileFormat      QrFileFormat       @default(PNG)
+  filePath        String?            // Path relatif di volume storage privat
+  fileSize        Int                @default(0) // Ukuran file QR dalam bytes
+  logoPath        String?            // Path relatif file logo jika disimpan
+  logoSize        Int                @default(0) // Ukuran logo dalam bytes
+  status          QrStatus           @default(ACTIVE)
+  deletedAt       DateTime?          // Soft delete timestamp
+  createdAt       DateTime           @default(now())
+  updatedAt       DateTime           @updatedAt
+  
+  user            User               @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, status, createdAt])
+  @@index([userId, contentType])
+}

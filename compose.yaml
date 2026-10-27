@@ -1,0 +1,96 @@
+services:
+  proxy:
+    image: caddy:2.8-alpine
+    container_name: miqr_proxy
+    restart: unless-stopped
+    ports:
+      - "8088:80"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      web:
+        condition: service_healthy
+    networks:
+      - miqr-network
+
+  web:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: miqr_web
+    restart: unless-stopped
+    ports:
+      - "3001:3000"
+    environment:
+      - NODE_ENV=production
+      - DATABASE_URL=postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB}?schema=public
+      - REDIS_URL=redis://redis:6379
+      - AUTH_SECRET=${AUTH_SECRET}
+      - STORAGE_ROOT=/var/lib/miqr
+      - DEFAULT_STORAGE_QUOTA_BYTES=${DEFAULT_STORAGE_QUOTA_BYTES:-104857600}
+      - MAX_LOGO_UPLOAD_BYTES=${MAX_LOGO_UPLOAD_BYTES:-2097152}
+    volumes:
+      - miqr_storage:/var/lib/miqr
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://127.0.0.1:3000/api/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+    networks:
+      - miqr-network
+
+  db:
+    image: postgres:16-alpine
+    container_name: miqr_db
+    restart: unless-stopped
+    ports:
+      - "5432:5432"
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - miqr-network
+
+  redis:
+    image: redis:7-alpine
+    container_name: miqr_redis
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    command: ["redis-server", "--appendonly", "yes", "--maxmemory", "128mb", "--maxmemory-policy", "volatile-lru"]
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - miqr-network
+
+volumes:
+  caddy_data:
+  caddy_config:
+  postgres_data:
+  redis_data:
+  miqr_storage:
+
+networks:
+  miqr-network:
+    driver: bridge
